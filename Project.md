@@ -1,69 +1,66 @@
-# The Bazaar Simulator - Architektur & Status
+# The Bazaar Simulator - Architecture & Status
 
-Dieses Projekt simuliert die Kampfmechaniken von "The Bazaar" unter Verwendung eines **ECS-ähnlichen (Entity Component System) Ansatzes**. Das Ziel ist eine modulare, erweiterbare und performante Simulation, um Taktiken zu testen.
+This project simulates the combat mechanics of "The Bazaar" using an ECS-like (Entity Component System) approach. The goal is a modular, extensible, and performant simulation that can be used to test tactics.
 
-## 1. Kern-Architektur
+## 1. Core Architecture
 
-Wir nutzen einen **Composition-over-Inheritance** Ansatz. Es gibt keine festen Klassen für "Schwert" oder "Zauberstab". Alles ist eine **Entity**, die durch ihre **Components** definiert wird.
+The codebase follows a composition-over-inheritance approach. There are no fixed classes for "sword" or "wand". Everything is an entity defined by its components.
 
-### 🏛️ Die Bausteine
+### The Building Blocks
 
-1.  **Entity (`entity.py`)**
+1. **Entity (`entity.py`)**
+    - A generic container with an ID and a list of components.
+    - Has a `tick_size` (for example 0.1s) for deterministic time simulation.
 
-    -   Ein generischer Container mit einer ID und einer Liste von Komponenten.
-    -   Besitzt eine `tick_size` (z.B. 0.1s) für die deterministische Zeitsimulation.
+2. **Components (`component.py`)**
+    - Hold data and specific logic as smart components.
+    - Split responsibilities cleanly:
+        - Vitality (player): `HealthComponent`, `ShieldComponent`, `StatusEffectContainer` (manages burn and poison ticks).
+        - Item logic: `TimeStore` (cooldown progress), `ValueStore` (stats such as damage), `ModifierStore` (buffs and debuffs), `AmmoComponent`.
+        - Meta: `TagComponent` (weapon, magic), `ItemSize` (small, medium).
 
-2.  **Components (`component.py`)**
+3. **Action System (Transactional)**
+    - Items do not fire randomly. The project uses a strict condition-cost-effect model:
+        - Conditions (`condition.py`): stateless checks such as "Is the cooldown ready?" and "Is ammo available?".
+        - Costs: if conditions pass, spend the required resources, for example "remove 1 ammo" or "reset the cooldown timer".
+        - Effects (`effect.py`): after payment, apply the result, for example "deal damage to the enemy".
+    - This enables more complex logic, such as an item charging up but not firing because ammo is missing.
 
-    -   Beinhalten Daten **und** spezifische Logik (Smart Components).
-    -   Trennen Verantwortlichkeiten sauber auf:
-        -   **Vitalität (Player):** `HealthComponent`, `ShieldComponent`, `StatusEffectContainer` (verwaltet Burn/Poison Ticks).
-        -   **Item-Logik:** `TimeStore` (Cooldown Fortschritt), `ValueStore` (Stats wie Damage), `ModifierStore` (Buffs/Debuffs), `AmmoComponent`.
-        -   **Meta:** `TagComponent` (Weapon, Magic), `ItemSize` (Small, Medium).
-
-3.  **Action System (Transaktional)**
-
-    -   Items "feuern" nicht einfach wahllos. Wir nutzen ein striktes **Condition-Cost-Effect** Modell:
-        -   **Conditions (`condition.py`):** Stateless Checks. _"Ist der Cooldown fertig?", "Ist Munition da?"_.
-        -   **Costs:** Wenn Conditions erfüllt -> _"Ziehe 1 Ammo ab", "Resette Cooldown timer"_.
-        -   **Effects (`effect.py`):** Wenn Bezahlt -> _"Füge dem Gegner Schaden zu"_.
-    -   Dies erlaubt komplexe Logik (z.B. Item lädt auf, feuert aber nicht weil Ammo fehlt -> Overcharge).
-
-4.  **Status Effekte**
-    -   Zentralisiert im `StatusEffectContainer`.
-    -   Unterscheidet automatisch Logik-Typen:
-        -   **Burn:** Schaden + Decay (wird weniger).
-        -   **Poison:** Piercing Schaden (ignoriert Schild) + Kein Decay.
-        -   **Freeze:** Im `ModifierStore` als Multiplier `0.0` implementiert.
+4. **Status Effects**
+    - Centralized in `StatusEffectContainer`.
+    - Automatically distinguishes effect types:
+        - Burn: damage plus decay over time.
+        - Poison: piercing damage that ignores shield, with no decay.
+        - Freeze: implemented in `ModifierStore` as a multiplier of `0.0`.
 
 ---
 
-## 2. Datenmodell Beispiele
+## 2. Data Model Examples
 
-Wie sieht ein Objekt in diesem System aus?
+What does an object look like in this system?
 
-**Der Spieler (Entity):**
+**The player (entity):**
 
 ```python
 Entity(
     components=[
         HealthComponent(max=1000),
-        ShieldComponent(),          # Separat, da Poison es ignoriert
-        StatusEffectContainer(),    # Managt Burn/Poison Timer
-        BoardComponent()            # (TODO) Hält die Items
+        ShieldComponent(),          # Separate because poison ignores it
+        StatusEffectContainer(),    # Manages burn and poison timers
+        BoardComponent()            # TODO: holds the items
     ]
 )
 ```
 
-**Ein Item (z.B. Eis-Schwert):**
+**An item (for example an ice sword):**
 
 ```python
 Entity(
     components=[
-        TimeStore(),                # Fortschrittsbalken
+        TimeStore(),                # Progress bar
         ValueStore(cooldown=3.0, damage=10),
         TagComponent(["Weapon", "Ice"]),
-        ModifierStore()             # Kann Haste/Slow/Freeze empfangen
+        ModifierStore()             # Can receive haste, slow, or freeze
     ],
     actions=[
         Action(
@@ -77,35 +74,35 @@ Entity(
 
 ---
 
-## 3. Fortschritts-Checkliste
+## 3. Progress Checklist
 
-Hier ist der aktuelle Stand der Implementierung basierend auf den Spielregeln.
+Current implementation status based on the game rules.
 
-### ✅ Implements (Fertig & Getestet)
+### Implemented and Tested
 
--   [x] **Entity Basis:** Komponenten-System steht.
--   [x] **HP & Heilung:** `HealthComponent` mit Max-HP Logik.
--   [x] **Schild Mechanik:** `ShieldComponent` schützt vor Schaden, wird vor HP verbraucht.
--   [x] **Status Effekte Basis:**
-    -   [x] **Burn:** Schaden über Zeit, reduziert sich selbst.
-    -   [x] **Poison:** Schaden über Zeit, ignoriert Schild, reduziert sich nicht.
-    -   [x] **Regeneration:** Heilung über Zeit.
--   [x] **Cooldown Mechanik:**
-    -   [x] Aufladen basierend auf Zeit.
-    -   [x] **Haste/Slow:** `ModifierStore` verändert Zeitfluss.
-    -   [x] **Freeze:** Zeitfluss wird komplett gestoppt.
--   [x] **Ressourcen:** `AmmoComponent` (Munition).
--   [x] **Action Trigger:** Items feuern nur, wenn alle Bedingungen (Zeit + Ammo) erfüllt sind.
+- Entity foundation and component system.
+- HP and healing with max-HP logic.
+- Shield mechanics that absorb damage before HP.
+- Status effect basics:
+    - Burn: damage over time, self-decaying.
+    - Poison: damage over time, ignores shield, no decay.
+    - Regeneration: healing over time.
+- Cooldown mechanics:
+    - Time-based charging.
+    - Haste and slow via `ModifierStore`.
+    - Freeze that stops time flow completely.
+- Resources: `AmmoComponent`.
+- Action triggering only when all conditions are satisfied (time plus ammo).
 
-### 🚧 In Progress / TODO (Nächste Schritte)
+### In Progress / TODO
 
--   [ ] **Das Board:** Logik für `BoardComponent`, das Items hält.
--   [ ] **Positionierung & Adjacency:**
-    -   [ ] Items müssen wissen, wer links/rechts neben ihnen liegt.
-    -   [ ] Effekte wie _"Items adjacent to this heal for 5"_.
--   [ ] **Event Bus (Reaktivität):**
-    -   [ ] System für _"**When** you use an item..."_ Effekte.
-    -   [ ] Items müssen auf Events hören können (Observer Pattern).
--   [ ] **Sandstorm:** Der globale Timer, der Schaden hochskaliert.
--   [ ] **Game Loop:** Der eigentliche Kampf-Loop, der zwei Spieler Entities gegeneinander ticken lässt.
--   [ ] **Item Loader:** Ein Weg, JSON/Datenbank-Daten in diese Entity-Struktur zu parsen.
+- Board logic for `BoardComponent`.
+- Positioning and adjacency:
+    - Items need to know which items are left and right of them.
+    - Effects such as "items adjacent to this heal for 5".
+- Event bus / reactivity:
+    - Support for effects like "when you use an item...".
+    - Items need to listen for events using an observer pattern.
+- Sandstorm: the global timer that scales damage upward.
+- Game loop: the combat loop that ticks two player entities against each other.
+- Item loader: parsing JSON or database data into the entity structure.
